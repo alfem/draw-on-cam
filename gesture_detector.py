@@ -1,7 +1,7 @@
 """Hand gesture detection using MediaPipe HandLandmarker (Tasks API).
 
 Gestures:
-- "pinch": thumb + index fingertips close together (pinza),
+- "pinch": thumb + index fingertips close together (pinch),
            middle + ring + pinky curled. Drawing point is the midpoint.
 - "palm":  all/most fingers extended. Eraser mode.
 - "none":  no hand or unrecognized gesture.
@@ -28,10 +28,10 @@ _DEFAULT_MODEL_PATH = os.path.join(
 @dataclass
 class GestureResult:
     """Result of gesture detection for a single frame."""
-    gesture: str = "none"      # "none" | "pinch" | "palm"
-    draw_point: Optional[tuple[int, int]] = None   # where to draw (pinch midpoint)
-    palm_center: Optional[tuple[int, int]] = None   # eraser center
-    landmarks: Optional[list] = None                 # raw landmarks for debug
+    gesture: str = "none"       # "none" | "pinch" | "palm"
+    draw_point: Optional[tuple[int, int]] = None    # where to draw (pinch midpoint)
+    palm_center: Optional[tuple[int, int]] = None    # eraser center
+    landmarks: Optional[list] = None                  # raw landmarks for debug
     handedness: Optional[str] = None
 
 
@@ -115,7 +115,7 @@ class GestureDetector:
         self.detector = HandLandmarker.create_from_options(options)
         self.smoother = GestureSmoother(window=config.gesture_confirmation_window)
 
-        # Draw point smoothing (EMA). Lower = smoother but more lag.
+        # Drawing point smoothing (EMA). Lower = smoother but more lag.
         self._prev_draw_point: Optional[tuple[float, float]] = None
         self._prev_palm_center: Optional[tuple[float, float]] = None
         self._ema_alpha = config.smoothing
@@ -129,6 +129,7 @@ class GestureDetector:
         return ((lm1.x - lm2.x) ** 2 + (lm1.y - lm2.y) ** 2) ** 0.5
 
     def detect(self, frame: np.ndarray) -> GestureResult:
+        """Detect hand gestures in a BGR frame."""
         h, w = frame.shape[:2]
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
@@ -143,9 +144,13 @@ class GestureDetector:
             return GestureResult(gesture="none")
 
         landmarks = result.hand_landmarks[0]
-        handedness = result.handedness[0][0].category_name if result.handedness else None
+        handedness = (
+            result.handedness[0][0].category_name if result.handedness else None
+        )
 
-        raw_gesture, draw_point, palm_center = self._classify_gesture(landmarks, w, h)
+        raw_gesture, draw_point, palm_center = self._classify_gesture(
+            landmarks, w, h
+        )
         draw_point = self._smooth_point(draw_point, "_prev_draw_point")
         palm_center = self._smooth_point(palm_center, "_prev_palm_center")
         smooth_gesture = self.smoother.update(raw_gesture)
@@ -159,6 +164,7 @@ class GestureDetector:
         )
 
     def _smooth_point(self, point, attr_name):
+        """Apply EMA smoothing to a point for jitter reduction."""
         if point is None:
             setattr(self, attr_name, None)
             return None
@@ -175,7 +181,7 @@ class GestureDetector:
     def _classify_gesture(self, landmarks, frame_w, frame_h):
         """Classify hand gesture from landmarks.
 
-        "pinch": thumb + index fingertips close together (pinza),
+        "pinch": thumb + index fingertips close together,
                  middle + ring + pinky curled.
         "palm":  all 4 fingers extended.
         "none":  anything else.
@@ -207,12 +213,18 @@ class GestureDetector:
             < hand_size * 0.5
         )
 
-        if pinch_dist < hand_size * 0.35 and middle_curled and ring_curled and pinky_curled:
+        if (
+            pinch_dist < hand_size * 0.35
+            and middle_curled
+            and ring_curled
+            and pinky_curled
+        ):
             # Drawing point: midpoint between thumb and index tips
             mx = (landmarks[self.THUMB_TIP].x + landmarks[self.INDEX_TIP].x) / 2
             my = (landmarks[self.THUMB_TIP].y + landmarks[self.INDEX_TIP].y) / 2
             dp = (int(mx * frame_w), int(my * frame_h))
-            dp = (max(0, min(dp[0], frame_w - 1)), max(0, min(dp[1], frame_h - 1)))
+            dp = (max(0, min(dp[0], frame_w - 1)),
+                  max(0, min(dp[1], frame_h - 1)))
             palm_center = self._compute_palm_center(landmarks, frame_w, frame_h)
             return ("pinch", dp, palm_center)
 
@@ -231,8 +243,11 @@ class GestureDetector:
         return ("none", None, palm_center)
 
     def _compute_palm_center(self, landmarks, frame_w, frame_h):
-        indices = [self.WRIST, self.INDEX_MCP, self.MIDDLE_MCP,
-                   self.RING_MCP, self.PINKY_MCP]
+        """Compute palm center as average of wrist + MCP joints (pixel coords)."""
+        indices = [
+            self.WRIST, self.INDEX_MCP, self.MIDDLE_MCP,
+            self.RING_MCP, self.PINKY_MCP,
+        ]
         px = sum(landmarks[i].x for i in indices) / len(indices)
         py = sum(landmarks[i].y for i in indices) / len(indices)
         return (
@@ -243,6 +258,7 @@ class GestureDetector:
     # --- Debug drawing helpers ---
 
     def draw_landmarks(self, frame: np.ndarray, landmarks) -> None:
+        """Draw hand landmarks and connections on the frame for debugging."""
         h, w = frame.shape[:2]
         for s, e in self.HAND_CONNECTIONS:
             x1, y1 = int(landmarks[s].x * w), int(landmarks[s].y * h)
@@ -261,10 +277,12 @@ class GestureDetector:
             cv2.circle(frame, (x, y), 8, (255, 255, 255), 1, cv2.LINE_AA)
 
     def draw_eraser_indicator(self, frame, center, radius, color):
+        """Draw a semi-transparent circle showing the eraser area."""
         overlay = frame.copy()
         cv2.circle(overlay, center, radius, color, -1)
         cv2.addWeighted(overlay, 0.3, frame, 0.7, 0, frame)
         cv2.circle(frame, center, radius, color, 2)
 
     def close(self) -> None:
+        """Release MediaPipe resources."""
         self.detector.close()

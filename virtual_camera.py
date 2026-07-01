@@ -11,10 +11,10 @@ import numpy as np
 class VirtualCamera:
     """Writes processed frames to a v4l2loopback device via ffmpeg.
 
-    The pipeline: Python BGR frames -> ffmpeg stdin -> v4l2 yuyv422 -> /dev/videoN
+    Pipeline: Python BGR frames -> ffmpeg stdin -> v4l2 yuyv422 -> /dev/videoN
 
-    Cleanup is handled via atexit and signal handlers to prevent orphaned
-    ffmpeg processes that would lock the v4l2loopback device.
+    Cleanup is handled via atexit to prevent orphaned ffmpeg processes
+    that would lock the v4l2loopback device.
     """
 
     def __init__(
@@ -68,7 +68,7 @@ class VirtualCamera:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=stderr_dest,
-                preexec_fn=os.setsid,  # Create new process group; dies when parent dies
+                preexec_fn=os.setsid,  # dies when parent dies
             )
         except FileNotFoundError:
             raise RuntimeError(
@@ -96,11 +96,13 @@ class VirtualCamera:
             raise RuntimeError(
                 f"ffmpeg exited immediately (code {self.process.returncode}). "
                 f"Is {self.device} available? Try:\n"
-                f"  sudo modprobe v4l2loopback video_nr=13 card_label='OBS' exclusive_caps=1"
+                f"  sudo modprobe v4l2loopback video_nr=13 card_label='Draw on Cam' "
+                f"exclusive_caps=1"
             )
 
         print(f"[INFO] Virtual camera started on {self.device}")
-        print(f"[INFO] Output: {self.width}x{self.height} @ {self.fps}fps ({self.pix_fmt})")
+        print(f"[INFO] Output: {self.width}x{self.height} @ {self.fps}fps "
+              f"({self.pix_fmt})")
 
     def write_frame(self, frame: np.ndarray) -> None:
         """Write a BGR frame to the virtual camera.
@@ -152,7 +154,7 @@ class VirtualCamera:
             try:
                 self.process.wait(timeout=3)
             except subprocess.TimeoutExpired:
-                # Kill if it doesn't exit gracefully
+                # Force kill if it doesn't exit gracefully
                 self.process.kill()
                 self.process.wait(timeout=2)
                 print("[WARN] ffmpeg was forcefully killed after timeout")
@@ -162,9 +164,12 @@ class VirtualCamera:
 
     def is_alive(self) -> bool:
         """Check if ffmpeg is still running."""
-        return self._started and self.process is not None and self.process.poll() is None
+        return (
+            self._started
+            and self.process is not None
+            and self.process.poll() is None
+        )
 
     def _atexit_cleanup(self) -> None:
         """Cleanup handler for atexit."""
         self.stop()
-

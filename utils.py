@@ -39,7 +39,6 @@ def draw_text_with_background(
     font = cv2.FONT_HERSHEY_SIMPLEX
     (text_w, text_h), baseline = cv2.getTextSize(text, font, font_scale, thickness)
     x, y = position
-    # Background rectangle
     cv2.rectangle(
         frame,
         (x - padding, y - text_h - padding),
@@ -47,7 +46,6 @@ def draw_text_with_background(
         bg_color,
         -1,
     )
-    # Text
     cv2.putText(frame, text, (x, y), font, font_scale, text_color, thickness, cv2.LINE_AA)
 
 

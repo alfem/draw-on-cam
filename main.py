@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Draw on Cam — Real-time drawing with hand gesture recognition.
+"""Draw on Cam — Real-time drawing with hand gestures or mouse.
 
-Point with your index finger to draw on the webcam feed.
+Pinch thumb+index to draw on the webcam feed.
 Open your palm to erase nearby lines.
+Or use --mouse for mouse mode (left=draw, right=erase).
+
 The output is streamed to a virtual camera (v4l2loopback) for use in
 video conferencing apps like Teams, Zoom, etc.
 
 Usage:
     python main.py
-    python main.py --camera /dev/video2 --width 1280 --height 720
+    python main.py --camera 1 --width 1280 --height 720
     python main.py --no-preview --draw-color blue
+    python main.py --mouse
     python main.py --no-output  # Preview only, no virtual camera
 """
 
@@ -29,14 +32,14 @@ from virtual_camera import VirtualCamera
 class DrawOnCam:
     """Main application orchestrator.
 
-    Coordinates webcam capture, gesture detection, drawing canvas,
-    and virtual camera output in a real-time loop.
+    Coordinates webcam capture, input (gestures or mouse),
+    drawing canvas, and virtual camera output in a real-time loop.
     """
 
     def __init__(self, config: Config):
         self.config = config
         self.cap: cv2.VideoCapture | None = None
-        self.gesture_detector = GestureDetector(config)  # Always needed (overlays, etc.)
+        self.gesture_detector = GestureDetector(config)
         self.drawing_canvas = DrawingCanvas(config.output_height, config.output_width)
         self.virtual_camera: VirtualCamera | None = None
         self.fps_meter = FPSMeter()
@@ -47,6 +50,7 @@ class DrawOnCam:
         self.frame_count = 0
         self.running = False
         self._last_gesture_result = GestureResult()
+        self._show_landmarks = False
 
         # Mouse state
         self._mouse_x = 0
@@ -59,9 +63,7 @@ class DrawOnCam:
         # --- Initialize camera ---
         self.cap = self._init_camera()
 
-        # --- Initialize virtual camera (unless --no-output) ---
-        # We need to check if --no-output was passed. Config doesn't have
-        # a field for this yet, so we check sys.argv directly.
+        # --- Initialize virtual camera ---
         if self.config.enable_output:
             self.virtual_camera = VirtualCamera(
                 device=self.config.output_device,
@@ -76,6 +78,7 @@ class DrawOnCam:
                 print("[INFO] Continuing without virtual camera output...")
                 self.virtual_camera = None
 
+        # --- Controls info ---
         if self.config.use_mouse:
             print("[INFO] Controls (mouse mode):")
             print("  - Left button drag to DRAW")
@@ -88,7 +91,7 @@ class DrawOnCam:
         print("  - Press 'c' to clear all drawings")
         print()
 
-        # Register mouse callback if in mouse mode
+        # --- Register mouse callback if in mouse mode ---
         if self.config.use_mouse and self.config.display_preview:
             cv2.namedWindow("Draw on Cam")
             cv2.setMouseCallback("Draw on Cam", self._mouse_callback)
@@ -121,9 +124,8 @@ class DrawOnCam:
                 else:
                     if self.frame_count % self.config.process_every_n_frames == 0:
                         self._last_gesture_result = self.gesture_detector.detect(frame)
-                    result = self._last_gesture_result
-                    self.current_gesture = result.gesture
-                    self._handle_gesture(result)
+                    self.current_gesture = self._last_gesture_result.gesture
+                    self._handle_gesture(self._last_gesture_result)
 
                 # --- Render drawing onto frame ---
                 output = self.drawing_canvas.render_to_frame(frame)
@@ -132,8 +134,7 @@ class DrawOnCam:
                 if self.config.use_mouse:
                     self._draw_mouse_overlay(output)
                 else:
-                    result = self._last_gesture_result
-                    self._draw_overlays(output, result)
+                    self._draw_overlays(output, self._last_gesture_result)
 
                 # --- Write to virtual camera ---
                 if self.virtual_camera and self.virtual_camera.is_alive():
@@ -143,7 +144,7 @@ class DrawOnCam:
                         print(f"[WARN] Virtual camera: {e}")
                         self.virtual_camera = None
 
-                # --- Preview window: flip for mirror, then draw text on top ---
+                # --- Preview window: flip for mirror effect, draw text on top ---
                 if self.config.display_preview:
                     if self.config.flip_horizontal:
                         preview = cv2.flip(output, 1)
@@ -159,9 +160,11 @@ class DrawOnCam:
                     )
                     cv2.imshow("Draw on Cam", preview)
                     key = cv2.waitKey(1) & 0xFF
-                    # Handle window close (X button) — QT backend throws on closed window
+                    # Handle window close (X button)
                     try:
-                        window_open = cv2.getWindowProperty("Draw on Cam", cv2.WND_PROP_VISIBLE) >= 1
+                        window_open = (
+                            cv2.getWindowProperty("Draw on Cam", cv2.WND_PROP_VISIBLE) >= 1
+                        )
                     except cv2.error:
                         window_open = False
                     if key == ord("q") or not window_open:
@@ -170,9 +173,9 @@ class DrawOnCam:
                         self.drawing_canvas.clear_all()
                         print("[INFO] Canvas cleared")
                     elif key == ord("h"):
-                        # Toggle hand landmarks
-                        self._show_landmarks = not getattr(self, "_show_landmarks", False)
-                        print(f"[INFO] Hand landmarks: {'ON' if self._show_landmarks else 'OFF'}")
+                        self._show_landmarks = not self._show_landmarks
+                        print(f"[INFO] Hand landmarks: "
+                              f"{'ON' if self._show_landmarks else 'OFF'}")
 
         except KeyboardInterrupt:
             print("\n[INFO] Interrupted by user")
@@ -206,11 +209,12 @@ class DrawOnCam:
         fourcc_str = "".join([chr((actual_fourcc >> 8 * i) & 0xFF) for i in range(4)])
 
         print(f"[INFO] Camera opened: {self.config.camera_device}")
-        print(f"[INFO] Resolution: {actual_w}x{actual_h} @ {actual_fps:.1f}fps ({fourcc_str})")
+        print(f"[INFO] Resolution: {actual_w}x{actual_h} @ {actual_fps:.1f}fps "
+              f"({fourcc_str})")
 
         return cap
 
-    def _handle_gesture(self, result) -> None:
+    def _handle_gesture(self, result: GestureResult) -> None:
         """Map gesture classification to drawing/erasing actions."""
         if result.gesture == "pinch" and result.draw_point:
             x, y = result.draw_point
@@ -231,34 +235,31 @@ class DrawOnCam:
                 self.drawing_canvas.erase_at(x, y, self.config.eraser_radius)
 
         else:
-            # No recognized gesture or no hand
             if self.drawing_active:
                 self.drawing_canvas.end_stroke()
                 self.drawing_active = False
 
-    def _draw_overlays(self, frame: np.ndarray, result) -> None:
+    def _draw_overlays(self, frame: np.ndarray, result: GestureResult) -> None:
         """Draw gesture feedback overlays on the output frame."""
-        # Show hand landmarks if enabled
-        if getattr(self, "_show_landmarks", False) and result.landmarks:
+        if self._show_landmarks and result.landmarks:
             self.gesture_detector.draw_landmarks(frame, result.landmarks)
 
-        # Draw pinch indicator on index+middle fingertips
         if result.gesture == "pinch" and result.landmarks and result.draw_point:
             self.gesture_detector.draw_pinch_indicator(
                 frame, result.landmarks, self.config.drawing_color,
                 self.config.output_width, self.config.output_height,
             )
-            # Draw point for the midpoint
             x, y = result.draw_point
             cv2.circle(frame, (x, y), 3, self.config.drawing_color, -1, cv2.LINE_AA)
 
-        # Draw eraser indicator when palm is open
         if result.gesture == "palm" and result.palm_center:
             self.gesture_detector.draw_eraser_indicator(
                 frame, result.palm_center,
                 self.config.eraser_radius,
                 self.config.eraser_color,
             )
+
+    # --- Mouse input ---
 
     def _mouse_callback(self, event, x, y, flags, param) -> None:
         """OpenCV mouse callback — tracks button state and position."""
@@ -272,7 +273,8 @@ class DrawOnCam:
         mx, my = self._mouse_x, self._mouse_y
         w = self.config.output_width
 
-        # Mouse coords are in preview space. Convert to unflipped output space.
+        # Mouse coords are in preview (flipped) space.
+        # Convert to unflipped output space for drawing.
         if self.config.flip_horizontal:
             x, y = w - mx - 1, my
         else:
@@ -309,13 +311,12 @@ class DrawOnCam:
         else:
             x, y = mx, my
 
-        # Clamp to frame
         if x < 0 or x >= w or y < 0 or y >= h:
             return
 
         if self._mouse_left_down:
-            color = self.config.drawing_color
-            cv2.drawMarker(frame, (x, y), color, cv2.MARKER_CROSS, 12, 2, cv2.LINE_AA)
+            cv2.drawMarker(frame, (x, y), self.config.drawing_color,
+                           cv2.MARKER_CROSS, 12, 2, cv2.LINE_AA)
         elif self._mouse_right_down:
             self.gesture_detector.draw_eraser_indicator(
                 frame, (x, y), self.config.eraser_radius, self.config.eraser_color)
@@ -323,7 +324,7 @@ class DrawOnCam:
             cv2.circle(frame, (x, y), 4, (255, 255, 255), -1, cv2.LINE_AA)
 
     def _cleanup(self) -> None:
-        """Graceful shutdown: release camera, stop virtual camera, close windows."""
+        """Release all resources gracefully."""
         print("[INFO] Shutting down...")
 
         if self.virtual_camera:
