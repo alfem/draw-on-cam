@@ -175,8 +175,9 @@ class DrawOnCam:
                         self.virtual_camera = None
 
                 # --- Preview window: flip for mirror effect, draw text on top ---
+                # Skip mirror flip when background is active (backgrounds aren't mirrors)
                 if self.config.display_preview:
-                    if self.config.flip_horizontal:
+                    if self.config.flip_horizontal and self._background is None:
                         preview = cv2.flip(output, 1)
                     else:
                         preview = output
