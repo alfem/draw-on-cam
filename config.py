@@ -35,7 +35,7 @@ class Config:
     # Drawing
     drawing_color: tuple = field(default_factory=lambda: (0, 0, 255))  # Red in BGR
     drawing_thickness: int = 4
-    smoothing: float = 0.4  # EMA smoothing (0=very smooth, 1=no smoothing)
+    smoothing: float = 0.4  # EMA smoothing (0 = max smooth, 1 = no smoothing)
     eraser_radius: int = 60
     eraser_color: tuple = field(default_factory=lambda: (0, 255, 0))  # Green indicator
 
@@ -51,11 +51,14 @@ class Config:
     @classmethod
     def from_args(cls) -> "Config":
         parser = argparse.ArgumentParser(
-            description="Draw on webcam with hand gestures. Point index finger to draw, open palm to erase."
+            description="Draw on webcam with hand gestures. "
+                        "Pinch thumb+index to draw, open palm to erase. "
+                        "Use --mouse for mouse mode."
         )
         parser.add_argument(
             "--camera", default=cls.camera_device,
-            help=f"Camera: device path (/dev/video0) or index from --list-cameras (default: {cls.camera_device})"
+            help=f"Camera: device path (/dev/video0) or index from --list-cameras "
+                 f"(default: {cls.camera_device})"
         )
         parser.add_argument(
             "--list-cameras", action="store_true",
@@ -108,7 +111,7 @@ class Config:
         )
         parser.add_argument(
             "--smoothing", type=float, default=cls.smoothing,
-            help=f"Stroke smoothing 0.0–1.0 (default: {cls.smoothing}, lower=smoother)"
+            help=f"Stroke smoothing 0.05–1.0 (default: {cls.smoothing}, lower=smoother)"
         )
         parser.add_argument(
             "--eraser-radius", type=int, default=cls.eraser_radius,
@@ -116,7 +119,8 @@ class Config:
         )
         parser.add_argument(
             "--fps-skip", type=int, default=cls.process_every_n_frames,
-            help=f"Process gesture every N frames for performance (default: {cls.process_every_n_frames})"
+            help=f"Process gesture every N frames for performance "
+                 f"(default: {cls.process_every_n_frames})"
         )
 
         args = parser.parse_args()
@@ -228,12 +232,14 @@ class Config:
         try:
             index = int(camera_arg)
         except ValueError:
-            print(f"[ERROR] Invalid camera: '{camera_arg}'. Use --list-cameras to see options.")
+            print(f"[ERROR] Invalid camera: '{camera_arg}'. "
+                  "Use --list-cameras to see options.")
             sys.exit(1)
 
         cameras = Config._discover_cameras()
         if not cameras:
-            print("[ERROR] No cameras detected. Use a full device path like --camera /dev/video0")
+            print("[ERROR] No cameras detected. "
+                  "Use a full device path like --camera /dev/video0")
             sys.exit(1)
 
         if index < 0 or index >= len(cameras):

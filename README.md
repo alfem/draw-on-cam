@@ -1,37 +1,37 @@
 # Draw on Cam
 
-Dibuja en tiempo real sobre tu webcam usando gestos de la mano. La salida se emite como cámara virtual (v4l2loopback) para usarla en Teams, Zoom, OBS o cualquier aplicación de videoconferencia.
+Draw in real time on your webcam using hand gestures. The output is streamed as a virtual camera (v4l2loopback) for use in Teams, Zoom, OBS, or any video conferencing app.
 
-## Cómo funciona
+## How it works
 
-La aplicación captura el vídeo de tu webcam, detecta la mano mediante MediaPipe y superpone líneas y trazos que dibujas con los dedos. El resultado se emite como una cámara virtual que puedes seleccionar en cualquier app.
+The app captures your webcam feed, detects your hand using MediaPipe, and overlays lines and strokes you draw with your fingers. The result is output as a virtual camera you can select in any app.
 
-### Gestos
+### Gestures
 
-| Gesto | Acción |
+| Gesture | Action |
 |---|---|
-| Pinza pulgar+índice (yemas juntas, resto de dedos cerrados) | **Dibujar** — el trazo sigue el punto medio entre ambos dedos |
-| Palma abierta (todos los dedos extendidos) | **Borrar** — elimina los trazos dentro del círculo verde |
-| Cualquier otra posición / sin mano | No dibuja ni borra |
+| Pinch thumb+index (fingertips together, other fingers curled) | **Draw** — the stroke follows the midpoint between both fingers |
+| Open palm (all fingers extended) | **Erase** — clears strokes inside the green circle |
+| Any other position / no hand | No action |
 
-Al separar los dedos de la pinza, el trazo se corta al instante.
+When you separate your fingertips, the stroke stops instantly.
 
-### Atajos de teclado en la ventana de preview
+### Keyboard shortcuts (preview window)
 
-| Tecla | Acción |
+| Key | Action |
 |---|---|
-| `q` | Salir |
-| `c` | Limpiar todos los dibujos |
-| `h` | Mostrar/ocultar landmarks de la mano (debug) |
+| `q` | Quit |
+| `c` | Clear all drawings |
+| `h` | Toggle hand landmarks (debug) |
 
-## Requisitos
+## Requirements
 
 - Python 3.10+
 - v4l2loopback (`sudo apt install v4l2loopback-dkms`)
 - ffmpeg (`sudo apt install ffmpeg`)
-- Cámara web
+- Webcam
 
-## Instalación
+## Installation
 
 ```bash
 cd draw-on-cam/
@@ -40,7 +40,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-El modelo de MediaPipe se descarga automáticamente. Si necesitas descargarlo manualmente:
+The MediaPipe model is downloaded automatically. To download it manually:
 
 ```bash
 mkdir -p models
@@ -48,166 +48,182 @@ wget -O models/hand_landmarker.task \
   https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task
 ```
 
-### Configurar la cámara virtual
+### Set up the virtual camera
 
 ```bash
-# Cargar el módulo con exclusive_caps=1 (necesario para Teams/Zoom)
+# Load the module with exclusive_caps=1 (required for Teams/Zoom)
 sudo modprobe -r v4l2loopback
 sudo modprobe v4l2loopback video_nr=13 card_label="Draw on Cam" exclusive_caps=1
 
-# Fijar el formato de salida
+# Lock the output format
 v4l2-ctl -d /dev/video13 -c keep_format=1
 
-# Dar permisos
+# Set permissions
 sudo chmod 666 /dev/video13
 ```
 
-Verifica que funciona:
+Verify it works:
 
 ```bash
 v4l2-ctl -d /dev/video13 --info
-# Debe mostrar "Video Capture" en las capabilities
+# Should show "Video Capture" in the capabilities
 ```
 
-## Uso
+## Usage
 
 ```bash
 source venv/bin/activate
 python main.py
 ```
 
-### Seleccionar cámara
+### Selecting a camera
 
 ```bash
-# Listar cámaras disponibles
+# List available cameras
 python main.py --list-cameras
 
-# Elegir por índice
+# Select by index
 python main.py --camera 0
 python main.py --camera 1
 
-# Elegir por ruta de dispositivo
+# Select by device path
 python main.py --camera /dev/video2
 ```
 
-### Parámetros
-
-```
-python main.py [opciones]
-
-  --camera 0|/dev/videoN   Cámara: índice (0, 1, ...) o ruta (default: /dev/video0)
-  --list-cameras            Lista las cámaras detectadas y sale
-  --output /dev/video13     Dispositivo de cámara virtual (default: /dev/video13)
-  --width 640               Ancho del frame (default: 640)
-  --height 480              Alto del frame (default: 480)
-  --draw-color red          Color del trazo: red, green, blue, yellow, cyan, magenta, white, black
-  --thickness 4             Grosor de línea en píxeles (default: 4)
-  --smoothing 0.4           Suavizado del trazo 0.05–1.0 (default: 0.4, menos = más suave)
-  --eraser-radius 60        Radio del borrador en píxeles (default: 60)
-  --fps-skip 1              Procesar gesto cada N frames (2+ para mejor rendimiento)
-  --no-preview              Sin ventana de preview
-  --no-output               Sin cámara virtual (solo preview)
-  --no-flip                 No reflejar el preview horizontalmente
-  --no-drawing              Desactivar dibujo (debug)
-  --no-erase                Desactivar borrado (debug)
-```
-
-### Ejemplos
+### Mouse mode
 
 ```bash
-# Trazo fino azul con mucho suavizado
+# Use mouse instead of hand gestures
+python main.py --mouse
+```
+
+| Mouse button | Action |
+|---|---|
+| Left button drag | Draw |
+| Right button drag | Erase |
+
+### Options
+
+```
+python main.py [options]
+
+  --camera 0|/dev/videoN   Camera: index (0, 1, ...) or path (default: /dev/video0)
+  --list-cameras            List detected cameras and exit
+  --output /dev/video13     Virtual camera device (default: /dev/video13)
+  --width 640               Frame width (default: 640)
+  --height 480              Frame height (default: 480)
+  --draw-color red          Stroke color: red, green, blue, yellow, cyan, magenta, white, black
+  --thickness 4             Stroke thickness in pixels (default: 4)
+  --smoothing 0.4           Stroke smoothing 0.05–1.0 (default: 0.4, lower = smoother)
+  --eraser-radius 60        Eraser radius in pixels (default: 60)
+  --mouse                   Use mouse instead of hand gestures (left=draw, right=erase)
+  --fps-skip 1              Process gesture every N frames (2+ for better performance)
+  --no-preview              Disable preview window
+  --no-output               No virtual camera output (preview only)
+  --no-flip                 Do not mirror the preview horizontally
+  --no-drawing              Disable drawing (debug)
+  --no-erase                Disable erasing (debug)
+```
+
+### Examples
+
+```bash
+# Thin blue stroke with heavy smoothing
 python main.py --draw-color blue --thickness 2 --smoothing 0.2
 
-# Trazo grueso verde, borrador grande
+# Thick green stroke, large eraser
 python main.py --draw-color green --thickness 8 --eraser-radius 100
 
-# Solo preview, sin cámara virtual
+# Preview only, no virtual camera
 python main.py --no-output
 
-# Alta resolución (más carga de CPU)
+# High resolution (more CPU load)
 python main.py --width 1280 --height 720
 
-# Cámara secundaria con poco suavizado (trazo más reactivo)
+# Mouse mode instead of gestures
+python main.py --mouse
+
+# Secondary camera with responsive strokes
 python main.py --camera 1 --smoothing 0.7
 ```
 
-## Verificar la cámara virtual
+## Verifying the virtual camera
 
-Mientras la app está corriendo, en otra terminal:
+While the app is running, in another terminal:
 
 ```bash
 ffplay /dev/video13
 ```
 
-En Teams o Zoom, selecciona **"Draw on Cam"** como cámara. Si no aparece, reinicia la aplicación de videoconferencia (cachea la lista de dispositivos al arrancar).
+In Teams or Zoom, select **"Draw on Cam"** as your camera. If it doesn't appear, restart the video conferencing app (it caches the device list on startup).
 
-## Solución de problemas
+## Troubleshooting
 
-### La cámara no se abre
+### Camera won't open
 
 ```bash
 sudo usermod -aG video $USER
-# Cerrar sesión y volver a entrar
+# Log out and back in
 ```
 
-### La cámara virtual no aparece en Teams/Zoom
+### Virtual camera doesn't show in Teams/Zoom
 
 ```bash
-# Recargar v4l2loopback con exclusive_caps=1
+# Reload v4l2loopback with exclusive_caps=1
 sudo modprobe -r v4l2loopback
 sudo modprobe v4l2loopback video_nr=13 card_label="Draw on Cam" exclusive_caps=1
 v4l2-ctl -d /dev/video13 -c keep_format=1
 ```
 
-### ffmpeg sale inmediatamente
+### ffmpeg exits immediately
 
 ```bash
-# Verificar que el dispositivo no está en uso
+# Check if the device is in use
 sudo fuser /dev/video13
 
-# Matar el proceso que lo ocupa (si es seguro)
+# Kill the process using it (if safe)
 sudo fuser -k /dev/video13
 ```
 
-### Rendimiento bajo / FPS bajos
+### Low performance / FPS drops
 
 ```bash
-# Procesar gestos en frames alternos
+# Process gestures every other frame
 python main.py --fps-skip 2
 
-# Reducir resolución
+# Lower resolution
 python main.py --width 640 --height 480
 
-# Desactivar preview
+# Disable preview
 python main.py --no-preview
 ```
 
-### El trazo tiembla mucho
+### Stroke is too jittery
 
 ```bash
-# Aumentar el suavizado
+# Increase smoothing
 python main.py --smoothing 0.2
 ```
 
-### El trazo va con mucho retraso
+### Stroke lags behind
 
 ```bash
-# Reducir el suavizado
+# Reduce smoothing
 python main.py --smoothing 0.7
 ```
 
-## Estructura del proyecto
+## Project structure
 
 ```
 draw-on-cam/
-├── main.py              # Bucle principal, orquestación
-├── config.py            # Configuración y CLI
-├── gesture_detector.py  # MediaPipe Hands + clasificación de gestos
-├── drawing_canvas.py    # Lienzo RGBA, polilíneas, borrado
-├── virtual_camera.py    # Salida v4l2loopback vía ffmpeg
-├── utils.py             # FPSMeter, helpers
+├── main.py              # Main loop and orchestration
+├── config.py            # Configuration and CLI parsing
+├── gesture_detector.py  # MediaPipe Hands + gesture classification
+├── drawing_canvas.py    # RGBA canvas, polylines, eraser
+├── virtual_camera.py    # v4l2loopback output via ffmpeg
+├── utils.py             # FPSMeter, debug helpers
 ├── models/
-│   └── hand_landmarker.task  # Modelo MediaPipe
-├── requirements.txt     # Dependencias Python
+│   └── hand_landmarker.task  # MediaPipe model
+├── requirements.txt     # Python dependencies
 └── README.md
 ```
