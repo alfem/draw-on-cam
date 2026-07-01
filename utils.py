@@ -25,6 +25,43 @@ class FPSMeter:
         return (len(self.times) - 1) / (self.times[-1] - self.times[0])
 
 
+def load_image_fill(path: str, width: int, height: int) -> np.ndarray:
+    """Load an image and resize to fill the target dimensions (center-crop).
+
+    Args:
+        path: File path to the image.
+        width: Target width in pixels.
+        height: Target height in pixels.
+
+    Returns:
+        BGR numpy array of shape (height, width, 3).
+    """
+    img = cv2.imread(path)
+    if img is None:
+        raise FileNotFoundError(f"Cannot load image: {path}")
+
+    ih, iw = img.shape[:2]
+    target_ratio = width / height
+    image_ratio = iw / ih
+
+    if image_ratio > target_ratio:
+        # Image is wider: scale to match height, crop sides
+        new_h = height
+        new_w = int(iw * height / ih)
+        img = cv2.resize(img, (new_w, new_h))
+        offset = (new_w - width) // 2
+        img = img[:, offset:offset + width]
+    else:
+        # Image is taller: scale to match width, crop top/bottom
+        new_w = width
+        new_h = int(ih * width / iw)
+        img = cv2.resize(img, (new_w, new_h))
+        offset = (new_h - height) // 2
+        img = img[offset:offset + height, :]
+
+    return img
+
+
 def draw_text_with_background(
     frame: np.ndarray,
     text: str,

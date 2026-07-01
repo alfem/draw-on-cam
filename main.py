@@ -25,7 +25,7 @@ import numpy as np
 from config import Config
 from drawing_canvas import DrawingCanvas
 from gesture_detector import GestureDetector, GestureResult
-from utils import FPSMeter, draw_status_panel
+from utils import FPSMeter, draw_status_panel, load_image_fill
 from virtual_camera import VirtualCamera
 
 
@@ -58,6 +58,10 @@ class DrawOnCam:
         self._mouse_left_down = False
         self._mouse_right_down = False
 
+        # Background image / PiP state
+        self._background: np.ndarray | None = None
+        self._pip_enabled: bool = False
+
     def run(self) -> None:
         """Start the main processing loop."""
         # --- Initialize camera ---
@@ -89,7 +93,13 @@ class DrawOnCam:
             print("  - Open palm to ERASE")
         print("  - Press 'q' in preview window to quit")
         print("  - Press 'c' to clear all drawings")
+        print("  - Press 'b' to select a background image (PiP mode)")
+        print("  - Press 'x' to clear background")
         print()
+
+        # Load background from CLI if provided
+        if self.config.background_image:
+            self._load_background(self.config.background_image)
 
         # --- Create preview window (disable QT toolbar/context menu) ---
         if self.config.display_preview:
@@ -128,8 +138,27 @@ class DrawOnCam:
                     self.current_gesture = self._last_gesture_result.gesture
                     self._handle_gesture(self._last_gesture_result)
 
-                # --- Render drawing onto frame ---
-                output = self.drawing_canvas.render_to_frame(frame)
+                # --- Compose base frame (background + optional PiP) ---
+                if self._background is not None and self._pip_enabled:
+                    base = self._background.copy()
+                    # Place webcam as PiP in bottom-right corner
+                    pip_w = int(self.config.output_width * self.config.pip_scale)
+                    pip_h = int(pip_w * frame.shape[0] / frame.shape[1])
+                    pip_frame = cv2.resize(frame, (pip_w, pip_h))
+                    margin = 10
+                    px = self.config.output_width - pip_w - margin
+                    py = self.config.output_height - pip_h - margin
+                    base[py:py + pip_h, px:px + pip_w] = pip_frame
+                    # White border around PiP
+                    cv2.rectangle(base, (px - 2, py - 2),
+                                  (px + pip_w + 2, py + pip_h + 2),
+                                  (255, 255, 255), 2)
+                    output = self.drawing_canvas.render_to_frame(base)
+                elif self._background is not None:
+                    # Background only (no PiP) — useful for drawing on whiteboard/slides
+                    output = self.drawing_canvas.render_to_frame(self._background.copy())
+                else:
+                    output = self.drawing_canvas.render_to_frame(frame)
 
                 # --- Overlays (gesture indicators or mouse cursor) ---
                 if self.config.use_mouse:
@@ -177,6 +206,18 @@ class DrawOnCam:
                         self._show_landmarks = not self._show_landmarks
                         print(f"[INFO] Hand landmarks: "
                               f"{'ON' if self._show_landmarks else 'OFF'}")
+                    elif key == ord("b"):
+                        path = self._pick_background_file()
+                        if path:
+                            self._load_background(path)
+                    elif key == ord("p"):
+                        if self._background is not None:
+                            self._pip_enabled = not self._pip_enabled
+                            print(f"[INFO] PiP: {'ON' if self._pip_enabled else 'OFF'}")
+                    elif key == ord("x"):
+                        self._background = None
+                        self._pip_enabled = False
+                        print("[INFO] Background cleared")
 
         except KeyboardInterrupt:
             print("\n[INFO] Interrupted by user")
@@ -323,6 +364,59 @@ class DrawOnCam:
                 frame, (x, y), self.config.eraser_radius, self.config.eraser_color)
         else:
             cv2.circle(frame, (x, y), 4, (255, 255, 255), -1, cv2.LINE_AA)
+
+    # --- Background / PiP ---
+
+    def _load_background(self, path: str) -> None:
+        """Load and resize a background image, and enable PiP mode."""
+        try:
+            self._background = load_image_fill(
+                path, self.config.output_width, self.config.output_height
+            )
+            self._pip_enabled = True
+            print(f"[INFO] Background loaded: {path}")
+        except Exception as e:
+            print(f"[ERROR] Failed to load background: {e}")
+
+    @staticmethod
+    def _pick_background_file() -> str | None:
+        """Open a file dialog to pick a background image.
+
+        Uses zenity (Ubuntu/GNOME) if available, falls back to tkinter.
+        """
+        import subprocess
+        # Try zenity first (no extra dependencies on Ubuntu)
+        try:
+            result = subprocess.run(
+                ["zenity", "--file-selection",
+                 "--title=Select background image",
+                 "--file-filter=Images (*.png *.jpg *.jpeg *.bmp) | *.png *.jpg *.jpeg *.bmp"],
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # Fallback to tkinter
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            path = filedialog.askopenfilename(
+                title="Select background image",
+                filetypes=[("Images", "*.png *.jpg *.jpeg *.bmp")],
+            )
+            root.destroy()
+            if path:
+                return path
+        except Exception:
+            pass
+
+        print("[ERROR] No file dialog available. Use --background PATH instead.")
+        return None
 
     def _cleanup(self) -> None:
         """Release all resources gracefully."""

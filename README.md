@@ -22,6 +22,9 @@ When you separate your fingertips, the stroke stops instantly.
 |---|---|
 | `q` | Quit |
 | `c` | Clear all drawings |
+| `b` | Select a background image (enables PiP mode) |
+| `p` | Toggle PiP on/off (when background is loaded) |
+| `x` | Clear background, return to full webcam |
 | `h` | Toggle hand landmarks (debug) |
 
 ## Requirements
@@ -117,6 +120,7 @@ python main.py [options]
   --smoothing 0.4           Stroke smoothing 0.05–1.0 (default: 0.4, lower = smoother)
   --eraser-radius 60        Eraser radius in pixels (default: 60)
   --mouse                   Use mouse instead of hand gestures (left=draw, right=erase)
+  --background PATH          Load a background image on startup (enables PiP)
   --fps-skip 1              Process gesture every N frames (2+ for better performance)
   --no-preview              Disable preview window
   --no-output               No virtual camera output (preview only)
@@ -134,6 +138,9 @@ python main.py --draw-color blue --thickness 2 --smoothing 0.2
 # Thick green stroke, large eraser
 python main.py --draw-color green --thickness 8 --eraser-radius 100
 
+# Load a background image at startup (slide/whiteboard to annotate)
+python main.py --background /path/to/slide.png
+
 # Preview only, no virtual camera
 python main.py --no-output
 
@@ -146,6 +153,14 @@ python main.py --mouse
 # Secondary camera with responsive strokes
 python main.py --camera 1 --smoothing 0.7
 ```
+
+### Picture-in-picture mode
+
+Press `b` while the app is running to select a background image. The webcam will shrink to a small window in the bottom-right corner, and the image will fill the screen. You can draw annotations on top of everything.
+
+- `b` — select a background image (opens file dialog)
+- `p` — toggle the webcam PiP on/off
+- `x` — clear the background and return to full webcam
 
 ## Verifying the virtual camera
 
