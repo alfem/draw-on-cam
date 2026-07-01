@@ -45,6 +45,7 @@ class Config:
     enable_drawing: bool = True
     enable_erase: bool = True
     enable_output: bool = True
+    use_mouse: bool = False  # Mouse mode: left button=draw, right button=erase
     process_every_n_frames: int = 1  # 1 = every frame, 2 = every other, etc.
 
     @classmethod
@@ -93,6 +94,10 @@ class Config:
             help="Do not write to virtual camera (preview only)"
         )
         parser.add_argument(
+            "--mouse", action="store_true",
+            help="Use mouse instead of hand gestures (left=draw, right=erase)"
+        )
+        parser.add_argument(
             "--draw-color", default="red",
             choices=["red", "green", "blue", "yellow", "cyan", "magenta", "white", "black"],
             help="Drawing color (default: red)"
@@ -134,6 +139,7 @@ class Config:
         cfg.enable_erase = not args.no_erase
         cfg.flip_horizontal = not args.no_flip
         cfg.enable_output = not args.no_output
+        cfg.use_mouse = args.mouse
         cfg.drawing_thickness = args.thickness
         cfg.smoothing = max(0.05, min(1.0, args.smoothing))  # clamp
         cfg.eraser_radius = args.eraser_radius

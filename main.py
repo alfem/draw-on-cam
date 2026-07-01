@@ -36,7 +36,7 @@ class DrawOnCam:
     def __init__(self, config: Config):
         self.config = config
         self.cap: cv2.VideoCapture | None = None
-        self.gesture_detector = GestureDetector(config)
+        self.gesture_detector = GestureDetector(config)  # Always needed (overlays, etc.)
         self.drawing_canvas = DrawingCanvas(config.output_height, config.output_width)
         self.virtual_camera: VirtualCamera | None = None
         self.fps_meter = FPSMeter()
@@ -46,7 +46,13 @@ class DrawOnCam:
         self.drawing_active = False
         self.frame_count = 0
         self.running = False
-        self._last_gesture_result = GestureResult()  # Initial empty result
+        self._last_gesture_result = GestureResult()
+
+        # Mouse state
+        self._mouse_x = 0
+        self._mouse_y = 0
+        self._mouse_left_down = False
+        self._mouse_right_down = False
 
     def run(self) -> None:
         """Start the main processing loop."""
@@ -70,12 +76,22 @@ class DrawOnCam:
                 print("[INFO] Continuing without virtual camera output...")
                 self.virtual_camera = None
 
-        print("[INFO] Controls:")
-        print("  - Pinch thumb+index fingers together to DRAW")
-        print("  - Open palm to ERASE")
+        if self.config.use_mouse:
+            print("[INFO] Controls (mouse mode):")
+            print("  - Left button drag to DRAW")
+            print("  - Right button drag to ERASE")
+        else:
+            print("[INFO] Controls (gesture mode):")
+            print("  - Pinch thumb+index fingers together to DRAW")
+            print("  - Open palm to ERASE")
         print("  - Press 'q' in preview window to quit")
         print("  - Press 'c' to clear all drawings")
         print()
+
+        # Register mouse callback if in mouse mode
+        if self.config.use_mouse and self.config.display_preview:
+            cv2.namedWindow("Draw on Cam")
+            cv2.setMouseCallback("Draw on Cam", self._mouse_callback)
 
         self.running = True
 
@@ -99,21 +115,25 @@ class DrawOnCam:
                 self.fps_meter.tick()
                 self.frame_count += 1
 
-                # --- Gesture detection (with frame skip support) ---
-                if self.frame_count % self.config.process_every_n_frames == 0:
-                    self._last_gesture_result = self.gesture_detector.detect(frame)
-
-                result = self._last_gesture_result
-                self.current_gesture = result.gesture
-
-                # --- Handle gesture ---
-                self._handle_gesture(result)
+                # --- Input: gestures or mouse ---
+                if self.config.use_mouse:
+                    self._handle_mouse()
+                else:
+                    if self.frame_count % self.config.process_every_n_frames == 0:
+                        self._last_gesture_result = self.gesture_detector.detect(frame)
+                    result = self._last_gesture_result
+                    self.current_gesture = result.gesture
+                    self._handle_gesture(result)
 
                 # --- Render drawing onto frame ---
                 output = self.drawing_canvas.render_to_frame(frame)
 
-                # --- Gesture overlays (position dots — symmetric shapes, fine when flipped) ---
-                self._draw_overlays(output, result)
+                # --- Overlays (gesture indicators or mouse cursor) ---
+                if self.config.use_mouse:
+                    self._draw_mouse_overlay(output)
+                else:
+                    result = self._last_gesture_result
+                    self._draw_overlays(output, result)
 
                 # --- Write to virtual camera ---
                 if self.virtual_camera and self.virtual_camera.is_alive():
@@ -139,7 +159,12 @@ class DrawOnCam:
                     )
                     cv2.imshow("Draw on Cam", preview)
                     key = cv2.waitKey(1) & 0xFF
-                    if key == ord("q") or cv2.getWindowProperty("Draw on Cam", cv2.WND_PROP_VISIBLE) < 1:
+                    # Handle window close (X button) — QT backend throws on closed window
+                    try:
+                        window_open = cv2.getWindowProperty("Draw on Cam", cv2.WND_PROP_VISIBLE) >= 1
+                    except cv2.error:
+                        window_open = False
+                    if key == ord("q") or not window_open:
                         self.running = False
                     elif key == ord("c"):
                         self.drawing_canvas.clear_all()
@@ -234,6 +259,68 @@ class DrawOnCam:
                 self.config.eraser_radius,
                 self.config.eraser_color,
             )
+
+    def _mouse_callback(self, event, x, y, flags, param) -> None:
+        """OpenCV mouse callback — tracks button state and position."""
+        self._mouse_x = x
+        self._mouse_y = y
+        self._mouse_left_down = (flags & cv2.EVENT_FLAG_LBUTTON) != 0
+        self._mouse_right_down = (flags & cv2.EVENT_FLAG_RBUTTON) != 0
+
+    def _handle_mouse(self) -> None:
+        """Process mouse input: draw with left button, erase with right."""
+        mx, my = self._mouse_x, self._mouse_y
+        w = self.config.output_width
+
+        # Mouse coords are in preview space. Convert to unflipped output space.
+        if self.config.flip_horizontal:
+            x, y = w - mx - 1, my
+        else:
+            x, y = mx, my
+
+        if self._mouse_left_down and self.config.enable_drawing:
+            self.drawing_active = True
+            self.current_gesture = "pinch"
+            self.drawing_canvas.add_point(
+                x, y,
+                color=self.config.drawing_color,
+                thickness=self.config.drawing_thickness,
+            )
+        elif self._mouse_right_down and self.config.enable_erase:
+            if self.drawing_active:
+                self.drawing_canvas.end_stroke()
+                self.drawing_active = False
+            self.current_gesture = "palm"
+            self.drawing_canvas.erase_at(x, y, self.config.eraser_radius)
+        else:
+            if self.drawing_active:
+                self.drawing_canvas.end_stroke()
+                self.drawing_active = False
+            self.current_gesture = "none"
+
+    def _draw_mouse_overlay(self, frame: np.ndarray) -> None:
+        """Draw mouse cursor indicator on the unflipped output frame."""
+        mx, my = self._mouse_x, self._mouse_y
+        w, h = self.config.output_width, self.config.output_height
+
+        # Convert mouse coords (preview space) to unflipped output space
+        if self.config.flip_horizontal:
+            x, y = w - mx - 1, my
+        else:
+            x, y = mx, my
+
+        # Clamp to frame
+        if x < 0 or x >= w or y < 0 or y >= h:
+            return
+
+        if self._mouse_left_down:
+            color = self.config.drawing_color
+            cv2.drawMarker(frame, (x, y), color, cv2.MARKER_CROSS, 12, 2, cv2.LINE_AA)
+        elif self._mouse_right_down:
+            self.gesture_detector.draw_eraser_indicator(
+                frame, (x, y), self.config.eraser_radius, self.config.eraser_color)
+        else:
+            cv2.circle(frame, (x, y), 4, (255, 255, 255), -1, cv2.LINE_AA)
 
     def _cleanup(self) -> None:
         """Graceful shutdown: release camera, stop virtual camera, close windows."""
