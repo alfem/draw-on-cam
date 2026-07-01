@@ -21,7 +21,7 @@ import numpy as np
 
 from config import Config
 from drawing_canvas import DrawingCanvas
-from gesture_detector import GestureDetector
+from gesture_detector import GestureDetector, GestureResult
 from utils import FPSMeter, draw_status_panel
 from virtual_camera import VirtualCamera
 
@@ -46,6 +46,7 @@ class DrawOnCam:
         self.drawing_active = False
         self.frame_count = 0
         self.running = False
+        self._last_gesture_result = GestureResult()  # Initial empty result
 
     def run(self) -> None:
         """Start the main processing loop."""
@@ -138,7 +139,7 @@ class DrawOnCam:
                     )
                     cv2.imshow("Draw on Cam", preview)
                     key = cv2.waitKey(1) & 0xFF
-                    if key == ord("q"):
+                    if key == ord("q") or cv2.getWindowProperty("Draw on Cam", cv2.WND_PROP_VISIBLE) < 1:
                         self.running = False
                     elif key == ord("c"):
                         self.drawing_canvas.clear_all()
