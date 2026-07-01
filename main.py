@@ -91,10 +91,11 @@ class DrawOnCam:
         print("  - Press 'c' to clear all drawings")
         print()
 
-        # --- Register mouse callback if in mouse mode ---
-        if self.config.use_mouse and self.config.display_preview:
-            cv2.namedWindow("Draw on Cam")
-            cv2.setMouseCallback("Draw on Cam", self._mouse_callback)
+        # --- Create preview window (disable QT toolbar/context menu) ---
+        if self.config.display_preview:
+            cv2.namedWindow("Draw on Cam", cv2.WINDOW_GUI_NORMAL)
+            if self.config.use_mouse:
+                cv2.setMouseCallback("Draw on Cam", self._mouse_callback)
 
         self.running = True
 

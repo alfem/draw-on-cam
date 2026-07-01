@@ -95,8 +95,8 @@ class DrawingCanvas:
     def erase_at(self, x: int, y: int, radius: int) -> bool:
         """Erase polyline points within `radius` of (x, y).
 
-        Polylines with erased points are split at gaps > 10px.
-        Polylines with fewer than 2 points are removed.
+        Lines that pass through the eraser area are split at the eraser
+        boundary. Only points strictly within the radius are removed.
 
         Returns True if anything was erased.
         """
@@ -108,58 +108,37 @@ class DrawingCanvas:
         erased_any = False
 
         for line in self._lines:
-            kept = [
-                pt for pt in line.points
-                if (pt[0] - x) ** 2 + (pt[1] - y) ** 2 > radius_sq
-            ]
+            # Split line into segments, dropping points inside the eraser.
+            # A segment is a contiguous run of points outside the radius.
+            segments: list[list[tuple[int, int]]] = []
+            current: list[tuple[int, int]] = []
 
-            if len(kept) < len(line.points):
-                erased_any = True
+            for pt in line.points:
+                if (pt[0] - x) ** 2 + (pt[1] - y) ** 2 > radius_sq:
+                    current.append(pt)
+                else:
+                    erased_any = True
+                    if len(current) >= 2:
+                        segments.append(current)
+                    current = []
 
-            # Split at gaps and keep valid segments
-            segments = self._split_at_gaps(kept, max_gap_px=10)
-            for seg_points in segments:
-                if len(seg_points) >= 2:
-                    new_lines.append(Polyline(
-                        points=seg_points,
-                        color=line.color,
-                        thickness=line.thickness,
-                    ))
+            if len(current) >= 2:
+                segments.append(current)
 
-        self._lines = new_lines
-        self._active_line = None
-        self._prev_point = None
+            for seg in segments:
+                new_lines.append(Polyline(
+                    points=seg,
+                    color=line.color,
+                    thickness=line.thickness,
+                ))
 
-        # Rebuild canvas from remaining lines
         if erased_any:
+            self._lines = new_lines
+            self._active_line = None
+            self._prev_point = None
             self._rebuild_canvas()
 
         return erased_any
-
-    def _split_at_gaps(
-        self, points: list[tuple[int, int]], max_gap_px: int = 10
-    ) -> list[list[tuple[int, int]]]:
-        """Split a list of points into segments where gaps exceed max_gap_px."""
-        if not points:
-            return []
-
-        segments: list[list[tuple[int, int]]] = []
-        current_segment = [points[0]]
-
-        for i in range(1, len(points)):
-            dx = points[i][0] - points[i - 1][0]
-            dy = points[i][1] - points[i - 1][1]
-            if dx * dx + dy * dy > max_gap_px * max_gap_px:
-                # Gap detected: start new segment
-                segments.append(current_segment)
-                current_segment = [points[i]]
-            else:
-                current_segment.append(points[i])
-
-        if current_segment:
-            segments.append(current_segment)
-
-        return segments
 
     def _rebuild_canvas(self) -> None:
         """Fully rebuild the RGBA canvas from the current polylines."""
