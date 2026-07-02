@@ -46,6 +46,7 @@ class Config:
     enable_erase: bool = True
     enable_output: bool = True
     use_mouse: bool = False  # Mouse mode: left button=draw, right button=erase
+    flip_output: bool = False  # Flip virtual camera output (for Teams self-view)
     pip_scale: float = 0.33  # Webcam PiP width as fraction of output width
     background_image: str | None = None  # Path to background image (also settable at runtime)
     process_every_n_frames: int = 1  # 1 = every frame, 2 = every other, etc.
@@ -107,6 +108,10 @@ class Config:
             help="Path to background image (enables PiP mode)"
         )
         parser.add_argument(
+            "--flip-output", action="store_true",
+            help="Flip virtual camera output (corrects Teams self-view mirror)"
+        )
+        parser.add_argument(
             "--draw-color", default="red",
             choices=["red", "green", "blue", "yellow", "cyan", "magenta", "white", "black"],
             help="Drawing color (default: red)"
@@ -150,6 +155,7 @@ class Config:
         cfg.flip_horizontal = not args.no_flip
         cfg.enable_output = not args.no_output
         cfg.use_mouse = args.mouse
+        cfg.flip_output = args.flip_output
         cfg.background_image = args.background
         cfg.drawing_thickness = args.thickness
         cfg.smoothing = max(0.05, min(1.0, args.smoothing))  # clamp

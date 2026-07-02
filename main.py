@@ -140,13 +140,17 @@ class DrawOnCam:
 
                 # --- Compose base frame (background + optional PiP) ---
                 if self._background is not None and self._pip_enabled:
-                    base = self._background.copy()
-                    # Place webcam as PiP in bottom-right corner
+                    # Teams/Zoom flip the self-view horizontally.  Compose
+                    # pre-flipped so the background appears correct after
+                    # the conference app's own flip.
+                    base = cv2.flip(self._background.copy(), 1)
+                    # Place webcam PiP at the LEFT (it moves to the right
+                    # after the conference-app flip)
                     pip_w = int(self.config.output_width * self.config.pip_scale)
                     pip_h = int(pip_w * frame.shape[0] / frame.shape[1])
                     pip_frame = cv2.resize(frame, (pip_w, pip_h))
                     margin = 10
-                    px = self.config.output_width - pip_w - margin
+                    px = margin
                     py = self.config.output_height - pip_h - margin
                     base[py:py + pip_h, px:px + pip_w] = pip_frame
                     # White border around PiP
@@ -175,9 +179,13 @@ class DrawOnCam:
                         self.virtual_camera = None
 
                 # --- Preview window: flip for mirror effect, draw text on top ---
-                # Skip mirror flip when background is active (backgrounds aren't mirrors)
                 if self.config.display_preview:
-                    if self.config.flip_horizontal and self._background is None:
+                    if self._pip_enabled:
+                        # PiP is composed pre-flipped.  Flip here so the
+                        # preview shows what the conference app will display.
+                        preview = cv2.flip(output, 1)
+                    elif self.config.flip_horizontal and self._background is None:
+                        # Full webcam: mirror for natural self-view
                         preview = cv2.flip(output, 1)
                     else:
                         preview = output
