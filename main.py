@@ -62,6 +62,9 @@ class DrawOnCam:
         self._background: np.ndarray | None = None
         self._pip_enabled: bool = False
 
+        # Preview window scale (1 = normal, 2 = 2× zoom)
+        self._preview_scale: int = 1
+
     def run(self) -> None:
         """Start the main processing loop."""
         # --- Initialize camera ---
@@ -95,6 +98,7 @@ class DrawOnCam:
         print("  - Press 'c' to clear all drawings")
         print("  - Press 'b' to select a background image (PiP mode)")
         print("  - Press 'x' to clear background")
+        print("  - Press 'z' to toggle preview zoom 1× / 2×")
         print()
 
         # Load background from CLI if provided
@@ -104,6 +108,11 @@ class DrawOnCam:
         # --- Create preview window (disable QT toolbar/context menu) ---
         if self.config.display_preview:
             cv2.namedWindow("Draw on Cam", cv2.WINDOW_GUI_NORMAL)
+            cv2.resizeWindow(
+                "Draw on Cam",
+                self.config.output_width,
+                self.config.output_height,
+            )
             if self.config.use_mouse:
                 cv2.setMouseCallback("Draw on Cam", self._mouse_callback)
 
@@ -197,8 +206,25 @@ class DrawOnCam:
                         self.drawing_active,
                         self.config.output_height,
                     )
-                    cv2.imshow("Draw on Cam", preview)
-                    key = cv2.waitKey(1) & 0xFF
+                    # --- Scale preview for zoomed drawing ---
+                    ph, pw = preview.shape[:2]
+                    if self._preview_scale > 1:
+                        display = cv2.resize(
+                            preview,
+                            (pw * self._preview_scale, ph * self._preview_scale),
+                            interpolation=cv2.INTER_NEAREST,
+                        )
+                        cv2.resizeWindow(
+                            "Draw on Cam",
+                            pw * self._preview_scale,
+                            ph * self._preview_scale,
+                        )
+                    else:
+                        display = preview
+                        cv2.resizeWindow("Draw on Cam", pw, ph)
+                    cv2.imshow("Draw on Cam", display)
+
+                    key = cv2.waitKeyEx(1) & 0xFF
                     # Handle window close (X button)
                     try:
                         window_open = (
@@ -215,6 +241,9 @@ class DrawOnCam:
                         self._show_landmarks = not self._show_landmarks
                         print(f"[INFO] Hand landmarks: "
                               f"{'ON' if self._show_landmarks else 'OFF'}")
+                    elif key == ord("z"):
+                        self._preview_scale = 1 if self._preview_scale > 1 else 2
+                        print(f"[INFO] Preview zoom: {self._preview_scale}×")
                     elif key == ord("b"):
                         path = self._pick_background_file()
                         if path:
@@ -321,7 +350,8 @@ class DrawOnCam:
 
     def _handle_mouse(self) -> None:
         """Process mouse input: draw with left button, erase with right."""
-        mx, my = self._mouse_x, self._mouse_y
+        mx = self._mouse_x // self._preview_scale
+        my = self._mouse_y // self._preview_scale
         w = self.config.output_width
 
         # Mouse coords are in preview (flipped) space.
@@ -353,7 +383,8 @@ class DrawOnCam:
 
     def _draw_mouse_overlay(self, frame: np.ndarray) -> None:
         """Draw mouse cursor indicator on the unflipped output frame."""
-        mx, my = self._mouse_x, self._mouse_y
+        mx = self._mouse_x // self._preview_scale
+        my = self._mouse_y // self._preview_scale
         w, h = self.config.output_width, self.config.output_height
 
         # Convert mouse coords (preview space) to unflipped output space
